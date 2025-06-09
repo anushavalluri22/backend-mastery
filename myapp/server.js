@@ -1,13 +1,28 @@
+//------------------------------------------------ALL necessary third-party Packages (Imports)---------------------------------------------------------------------------------------------------------------------------------------
 const express = require('express');
 const bcrypt = require('bcrypt');
-const app = express();
-app.use(express.json());
+const jwt = require('jsonwebtoken');
 const {open} = require('sqlite');
 const sqlite3 = require('sqlite3');
 const path = require('path');
 const { off } = require('process');
-const dbPath = path.join(__dirname,'practice.db');
-let db = null;
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+const app = express();   // creates an instance of the express server (that server is needed for the user
+                        //  to perform various operations on DataBase and get the needed resources)
+
+                        
+app.use(express.json()); // Converts the data passed to the http-Body to Json format for better understanding for the server
+
+
+const dbPath = path.join(__dirname,'practice.db'); // the path package containes a method called join() which is used to get the complete path
+                                                  // of that specified file from root directory (ex: c:/Desktop/node/backend-mastery/myapp/practice.db)
+
+
+
+let db = null; // Initially we havent connected the DataBase and server yet so lets assume it as null for now..
+
+//---------------------------------------------------Connecting SQlite Database and express Server------------------------------------------------------------------------------------
 const initializeDbAndServer = async() => {
     try {
         db = await open({
@@ -24,21 +39,43 @@ const initializeDbAndServer = async() => {
     }
 
 };
-// Display users API
-app.get('/users/',async(request,response) => {
-  const {search_q = '',orderBy = 'id',order = 'ASC',limit = 5,offset = 0} = request.query
-    let query = search_q || order || orderBy || limit || offset ? `SELECT
-    *
-    FROM
-    users
-    WHERE name LIKE '%${search_q}%'
-    ORDER BY ${orderBy} ${order}
-    LIMIT ? OFFSET ?;` : `SELECT * FROM users;`
-    let usersArray = await db.all(query,[limit,offset]);
-    response.send(usersArray);
-});
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-// Display single User API
+// --------------------Get Users API --> Display Users by sorting and ordering functions like (like,orderBy,order,limit,offset) and also Token Authentication-------------------------------------------------------------
+app.get('/users/',async(request,response) => {
+  let jwtToken;
+  const authHeader = request.headers.authorization;
+  if(authHeader !== undefined) {
+    jwtToken = authHeader.split(" ")[1];
+  }
+  if(jwtToken === undefined) {
+    response.status(401);
+    response.send("Invalid Access Token");
+  }
+  else {
+    jwt.verify(jwtToken,"MY_SECRET_TOKEN",async(error,payload) =>{
+      if(error) {
+        response.status(401);
+        response.send("Invalid Access Token")
+      }
+      else {
+        const {search_q = '',orderBy = 'id',order = 'ASC',limit = 5,offset = 0} = request.query
+        let query = search_q || order || orderBy || limit || offset ? `SELECT
+        *
+        FROM
+        users
+        WHERE name LIKE '%${search_q}%'
+        ORDER BY ${orderBy} ${order}
+        LIMIT ? OFFSET ?;` : `SELECT * FROM users;`
+        let usersArray = await db.all(query,[limit,offset]);
+        response.send(usersArray);
+      }
+    })
+  }
+});
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//------------------------------------------------------Get User API --> Display Single User -----------------------------------------------------------------------------------------------------------------------------
 app.get('/users/:id/',async(request,response) => {
     const {id} = request.params;
     const displayUsersquery = `SELECT * 
@@ -50,7 +87,9 @@ app.get('/users/:id/',async(request,response) => {
     console.log(row)
     row ? response.send(row) : response.sendFile('err.html',{root:__dirname});
 })
-// Register API
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------Register API --> creates new user in the Database---------------------------------------------------------------------------------------------------------------------------- 
 app.post('/users/',async(request,response) =>{
     const userDetails = request.body;
     const {
@@ -77,8 +116,9 @@ app.post('/users/',async(request,response) =>{
     }
     
 })
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-// Login API
+//--------------------------------------Login API (with Token Authentication) --> creates a unique access Token for the logged-in user-------------------------------------------------------------------------------------------------------------------------------------
 app.post('/login/',async(request,response) => {
   const {name,password} = request.body;
   const query = `SELECT * FROM users WHERE name = ?;`
@@ -92,7 +132,9 @@ app.post('/login/',async(request,response) => {
     console.log(dbUser.password);
     console.log(password);
     if(isPasswordMatched === true) {
-      response.send("Login Success!");
+      const payload = {name : name};
+      const jwtToken = jwt.sign(payload,"MY_SECRET_TOKEN");
+      response.send({jwtToken});
     }
     else {
       response.status(400);
@@ -100,7 +142,8 @@ app.post('/login/',async(request,response) => {
     }
   }
 })
-
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//--------------------------------------------------Update User API --> Updates the user details in the-------------------------------------------------------------------------------------------------------------------------------------
 app.put("/users/:userId/", async (request, response) => {
   const { userId } = request.params;
   const userDetails = request.body;
@@ -121,7 +164,9 @@ app.put("/users/:userId/", async (request, response) => {
   await db.run(updateUserQuery,[name,age,email,userId]);
   response.send("User Updated Successfully");
 });
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//-----------------------------------------------Delete User API --> Deletes an existing user from the DataBase----------------------------------------------------------------------------------------------------------------------------------------
 app.delete("/users/:userId",async (request,response) => {
   const {userId} = request.params;
   const deleteUserQuery = `
@@ -131,7 +176,6 @@ app.delete("/users/:userId",async (request,response) => {
   await db.run(deleteUserQuery,[userId]);
   response.send("User Deleted Successfully");
 
-})
-
-
+});
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 initializeDbAndServer();
